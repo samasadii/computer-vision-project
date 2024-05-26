@@ -158,14 +158,17 @@ def vlad(files, mus, powernorm, gmp=False, gamma=1000):
     for f in tqdm(files):
         with gzip.open(f, 'rb') as ff:
             desc = cPickle.load(ff, encoding='latin1')
+        # Assignments to nearest cluster centers
         a = assignments(desc, mus)
         
         T, D = desc.shape
-        f_enc = np.zeros((D*K), dtype=np.float32)
+        f_enc = np.zeros((K * D), dtype=np.float32)
+        # Iterate over each cluster center
         for k in range(K):
-            relevant_descriptors = desc[a[:, k] > 0]
-            if relevant_descriptors.size > 0:
-                residuals = relevant_descriptors - mus[k]
+            # Get descriptors assigned to this cluster
+            mask = (a == k)
+            if np.any(mask):  # Check if there are any descriptors assigned to this cluster
+                residuals = desc[mask] - mus[k]
                 if gmp:
                     f_enc[k*D:(k+1)*D] = residuals.max(axis=0) + gamma * residuals.min(axis=0)
                 else:
@@ -178,33 +181,38 @@ def vlad(files, mus, powernorm, gmp=False, gamma=1000):
         encodings.append(f_enc)
     return np.array(encodings)
 
+
 def esvm(encs_test, encs_train, C=1000):
     """ 
-    compute a new embedding using Exemplar Classification
-    compute for each encs_test encoding an E-SVM using the
-    encs_train as negatives   
-    parameters: 
-        encs_test: NxD matrix
-        encs_train: MxD matrix
+    Compute a new embedding using Exemplar SVMs.
+    Train an SVM for each test encoding using the encs_train as negatives.
 
-    returns: new encs_test matrix (NxD)
-    """
+    Parameters:
+        encs_test: NxD matrix (test encodings)
+        encs_train: MxD matrix (training encodings)
+        C: regularization strength of the SVM
 
-
+    Returns:
+        new_encs: NxD matrix (new transformed test encodings)
     """
-    Exemplar SVMs: Training SVM for each test encoding against all training encodings
-    """
-    labels = [-1] * len(encs_train)  # All training are negative
     new_encs = []
     for test_enc in tqdm(encs_test):
-        labels.append(1)  # Current test is positive
+        # Create training data for the current test encoding
+        X_train = np.vstack([encs_train, test_enc])  # Stack test_enc as a new row to encs_train
+        # Create labels: -1 for all train, +1 for the current test encoding
+        y_train = np.array([-1] * len(encs_train) + [1])  # Length of encs_train + 1 for the test_enc
+
+        # Train the SVM
         clf = LinearSVC(C=C, random_state=42)
-        clf.fit(encs_train + [test_enc], labels)
+        clf.fit(X_train, y_train)
+
+        # Extract the decision function (weights) of the trained SVM
         w = clf.coef_[0]
-        w /= np.linalg.norm(w)  # Normalize
+        w /= np.linalg.norm(w)  # Normalize the weights
         new_encs.append(w)
-        labels.pop()  # Remove test label
+
     return np.array(new_encs)
+
 
 
 def distances(encs):
@@ -320,7 +328,8 @@ if __name__ == '__main__':
 
     print('> esvm computation')
     # TODO
-
+    output = esvm(enc_test, enc_train, C=args.C)
     # eval
-    evaluate(enc_test, labels_test)
     print('> evaluate')
+    evaluate(output, labels_test)
+
