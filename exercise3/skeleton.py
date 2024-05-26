@@ -14,6 +14,8 @@ from sklearn.preprocessing import normalize
 import numpy as np
 import cv2
 from parmap import parmap
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.neighbors import NearestNeighbors
 
 def parseArgs(parser):
     parser.add_argument('--labels_test', 
@@ -119,8 +121,9 @@ def dictionary(descriptors, n_clusters):
     returns: KxD matrix of K clusters
     """
     # TODO
-    dummy = np.array([42])
-    return dummy
+    kmeans = MiniBatchKMeans(n_clusters=n_clusters, random_state=42, batch_size=1000)
+    kmeans.fit(descriptors)
+    return kmeans.cluster_centers_
 def assignments(descriptors, clusters):
     """ 
     compute assignment matrix
@@ -131,12 +134,14 @@ def assignments(descriptors, clusters):
     """
     # compute nearest neighbors
     # TODO
-
+    nbrs = NearestNeighbors(n_neighbors=1, algorithm='auto').fit(clusters)
+    
     # create hard assignment
-    assignment = np.zeros( (len(descriptors), len(clusters)) )
+    # assignment = np.zeros( (len(descriptors), len(clusters)) )
     # TODO
-
-    return assignment
+    distances, indices = nbrs.kneighbors(descriptors)
+    return indices.squeeze()
+    # return assignment
 
 def vlad(files, mus, powernorm, gmp=False, gamma=1000):
     """
@@ -150,30 +155,28 @@ def vlad(files, mus, powernorm, gmp=False, gamma=1000):
     """
     K = mus.shape[0]
     encodings = []
-
     for f in tqdm(files):
         with gzip.open(f, 'rb') as ff:
             desc = cPickle.load(ff, encoding='latin1')
         a = assignments(desc, mus)
         
-        T,D = desc.shape
-        f_enc = np.zeros( (D*K), dtype=np.float32)
-        for k in range(mus.shape[0]):
-            # it's faster to select only those descriptors that have
-            # this cluster as nearest neighbor and then compute the 
-            # difference to the cluster center than computing the differences
-            # first and then select
+        T, D = desc.shape
+        f_enc = np.zeros((D*K), dtype=np.float32)
+        for k in range(K):
+            relevant_descriptors = desc[a[:, k] > 0]
+            if relevant_descriptors.size > 0:
+                residuals = relevant_descriptors - mus[k]
+                if gmp:
+                    f_enc[k*D:(k+1)*D] = residuals.max(axis=0) + gamma * residuals.min(axis=0)
+                else:
+                    f_enc[k*D:(k+1)*D] = np.sum(residuals, axis=0)
 
-   
-        # c) power normalization
         if powernorm:
-            # TODO
-
-        # l2 normalization
-        # TODO
-
-
-    return encodings
+            f_enc = np.sign(f_enc) * np.sqrt(np.abs(f_enc))
+        
+        f_enc /= np.linalg.norm(f_enc)  # L2 normalization
+        encodings.append(f_enc)
+    return np.array(encodings)
 
 def esvm(encs_test, encs_train, C=1000):
     """ 
@@ -188,23 +191,20 @@ def esvm(encs_test, encs_train, C=1000):
     """
 
 
-    # set up labels
-    # TODO
-
-    def loop(i):
-        # compute SVM 
-        # and make feature transformation
-        # TODO
-        return x
-
-    # let's do that in parallel: 
-    # if that doesn't work for you, just exchange 'parmap' with 'map'
-    # Even better: use DASK arrays instead, then everything should be
-    # parallelized
-    new_encs = list(parmap( loop, tqdm(range(len(encs_test)))))
-    new_encs = np.concatenate(new_encs, axis=0)
-    # return new encodings
-    return new_encs
+    """
+    Exemplar SVMs: Training SVM for each test encoding against all training encodings
+    """
+    labels = [-1] * len(encs_train)  # All training are negative
+    new_encs = []
+    for test_enc in tqdm(encs_test):
+        labels.append(1)  # Current test is positive
+        clf = LinearSVC(C=C, random_state=42)
+        clf.fit(encs_train + [test_enc], labels)
+        w = clf.coef_[0]
+        w /= np.linalg.norm(w)  # Normalize
+        new_encs.append(w)
+        labels.pop()  # Remove test label
+    return np.array(new_encs)
 
 
 def distances(encs):
@@ -219,7 +219,14 @@ def distances(encs):
     # encodings
     # TODO
     # mask out distance with itself
-    np.fill_diagonal(dists, np.finfo(dists.dtype).max)
+    similarity = cosine_similarity(encs)
+
+    # Convert similarity to distance
+    dists = 1 - similarity
+
+    # Mask out distance with itself by setting diagonal to a large value
+    np.fill_diagonal(dists, np.finfo(np.float32).max)
+    
     return dists
 
 def evaluate(encs, labels):
@@ -265,17 +272,20 @@ if __name__ == '__main__':
     print('#train: {}'.format(len(files_train)))
     if not os.path.exists('mus.pkl.gz'):
         # TODO
+        descriptors = loadRandomDescriptors(files_train, max_descriptors=500000)
         print('> loaded {} descriptors:'.format(len(descriptors)))
 
         # cluster centers
         print('> compute dictionary')
         # TODO
+        mus = dictionary(descriptors, n_clusters=100)
         with gzip.open('mus.pkl.gz', 'wb') as fOut:
             cPickle.dump(mus, fOut, -1)
     else:
         with gzip.open('mus.pkl.gz', 'rb') as f:
             mus = cPickle.load(f)
 
+    gamma = args.gamma
   
     # b) VLAD encoding
     print('> compute VLAD for test')
@@ -285,6 +295,7 @@ if __name__ == '__main__':
     fname = 'enc_test_gmp{}.pkl.gz'.format(gamma) if args.gmp else 'enc_test.pkl.gz'
     if not os.path.exists(fname) or args.overwrite:
         # TODO
+        enc_test = vlad(files_test, mus, powernorm=args.powernorm, gmp=args.gmp, gamma=args.gamma)
         with gzip.open(fname, 'wb') as fOut:
             cPickle.dump(enc_test, fOut, -1)
     else:
@@ -300,6 +311,7 @@ if __name__ == '__main__':
     fname = 'enc_train_gmp{}.pkl.gz'.format(gamma) if args.gmp else 'enc_train.pkl.gz'
     if not os.path.exists(fname) or args.overwrite:
         # TODO
+        enc_train = vlad(files_train, mus, powernorm=args.powernorm, gmp=args.gmp, gamma=args.gamma)
         with gzip.open(fname, 'wb') as fOut:
             cPickle.dump(enc_train, fOut, -1)
     else:
