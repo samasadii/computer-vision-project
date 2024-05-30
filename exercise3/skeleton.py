@@ -15,7 +15,6 @@ import numpy as np
 import cv2
 from parmap import parmap
 from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.neighbors import NearestNeighbors
 
 def parseArgs(parser):
     parser.add_argument('--labels_test', 
@@ -132,16 +131,15 @@ def assignments(descriptors, clusters):
         clusters: KxD cluster matrix
     returns: TxK assignment matrix
     """
-    # compute nearest neighbors
-    # TODO
-    nbrs = NearestNeighbors(n_neighbors=1, algorithm='auto').fit(clusters)
+    # Create BFMatcher object
+    bf = cv2.BFMatcher(cv2.NORM_L2)
     
-    # create hard assignment
-    # assignment = np.zeros( (len(descriptors), len(clusters)) )
-    # TODO
-    distances, indices = nbrs.kneighbors(descriptors)
-    return indices.squeeze()
-    # return assignment
+    # Match descriptors to cluster centers using k nearest neighbor matching
+    matches = bf.knnMatch(descriptors.astype(np.float32), clusters.astype(np.float32), k=1)
+    
+    # Extract the indices of the nearest clusters
+    indices = np.array([match[0].trainIdx for match in matches])
+    return indices
 
 def vlad(files, mus, powernorm, gmp=False, gamma=1000):
     """
@@ -153,32 +151,36 @@ def vlad(files, mus, powernorm, gmp=False, gamma=1000):
         gmp: if set to True use generalized max pooling instead of sum pooling
     returns: NxK*D matrix of encodings
     """
-    K = mus.shape[0]
+    K, D = mus.shape
     encodings = []
     for f in tqdm(files):
         with gzip.open(f, 'rb') as ff:
             desc = cPickle.load(ff, encoding='latin1')
-        # Assignments to nearest cluster centers
-        a = assignments(desc, mus)
         
+        # Get assignments of descriptors to nearest cluster center
+        a = assignments(desc, mus)
+
         T, D = desc.shape
         f_enc = np.zeros((K * D), dtype=np.float32)
-        # Iterate over each cluster center
+        
         for k in range(K):
-            # Get descriptors assigned to this cluster
+            # Create mask for descriptors assigned to the k-th cluster
             mask = (a == k)
-            if np.any(mask):  # Check if there are any descriptors assigned to this cluster
+            
+            if np.any(mask):  # Check if any descriptor is assigned to this cluster
                 residuals = desc[mask] - mus[k]
+                
                 if gmp:
                     f_enc[k*D:(k+1)*D] = residuals.max(axis=0) + gamma * residuals.min(axis=0)
                 else:
                     f_enc[k*D:(k+1)*D] = np.sum(residuals, axis=0)
-
+        
         if powernorm:
             f_enc = np.sign(f_enc) * np.sqrt(np.abs(f_enc))
         
-        f_enc /= np.linalg.norm(f_enc)  # L2 normalization
+        f_enc /= np.linalg.norm(f_enc)  # Normalize the encoding vector
         encodings.append(f_enc)
+        
     return np.array(encodings)
 
 
@@ -203,7 +205,7 @@ def esvm(encs_test, encs_train, C=1000):
         y_train = np.array([-1] * len(encs_train) + [1])  # Length of encs_train + 1 for the test_enc
 
         # Train the SVM
-        clf = LinearSVC(C=C, random_state=42)
+        clf = LinearSVC(C=C, dual=True, random_state=42, class_weight='balanced')
         clf.fit(X_train, y_train)
 
         # Extract the decision function (weights) of the trained SVM
@@ -328,8 +330,9 @@ if __name__ == '__main__':
 
     print('> esvm computation')
     # TODO
-    output = esvm(enc_test, enc_train, C=args.C)
+    enc_test = esvm(enc_test, enc_train, C=args.C)
     # eval
+    evaluate(enc_test, labels_test)
     print('> evaluate')
-    evaluate(output, labels_test)
+    
 
