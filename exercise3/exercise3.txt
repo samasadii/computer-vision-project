@@ -1,0 +1,9 @@
+#train: 1182
+> compute VLAD for test
+#test: 3600
+> evaluate
+Top-1 accuracy: 0.8202777777777778 - mAP: 0.6300567398365219
+> compute VLAD for train (for E-SVM)
+> esvm computation
+Top-1 accuracy: 0.8869444444444444 - mAP: 0.7528833490463841
+> evaluate
