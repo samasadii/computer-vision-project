@@ -1,3 +1,6 @@
 exercise2/exercise_2_data
 exercise2/output
 exercise4/exercise04_SupplementaryMaterial/datasets
+exercise4/exercise04_SupplementaryMaterial/evaluation_test_data.pkl
+exercise4/exercise04_SupplementaryMaterial/evaluation_training_data.pkl
+exercise4/exercise04_SupplementaryMaterial/resnet50_128.onnx
