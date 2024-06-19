@@ -37,7 +37,7 @@ class OpenSetEvaluation:
     def run(self):
 
         similarity_thresholds = None
-	identification_rates = None
+        identification_rates = None
 
         # Report all performance measures.
         evaluation_results = {'similarity_thresholds': similarity_thresholds,
