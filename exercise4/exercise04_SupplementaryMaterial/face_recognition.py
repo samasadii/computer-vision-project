@@ -36,7 +36,11 @@ class FaceRecognizer:
     # Prepare FaceRecognizer; specify all parameters for face identification.
     def __init__(self, num_neighbours=11, max_distance=0.8, min_prob=0.5):
         # ToDo: Prepare FaceNet and set all parameters for kNN.
-        
+        self.facenet = FaceNet()
+        self.num_neighbours = num_neighbours
+        self.max_distance = max_distance
+        self.min_prob = min_prob
+
         # The underlying gallery: class labels and embeddings.
         self.labels = []
         self.embeddings = np.empty((0, self.facenet.get_embedding_dimensionality()))
@@ -57,11 +61,26 @@ class FaceRecognizer:
 
     # ToDo
     def update(self, face, label):
-        return None
+        embedding = self.facenet.predict(face)
+        self.embeddings = np.vstack([self.embeddings, embedding])
+        self.labels.append(label)
 
     # ToDo
     def predict(self, face):
-        return None
+        embedding = self.facenet.predict(face)
+        distances = spatial.distance.cdist([embedding], self.embeddings, 'euclidean')[0]
+        if np.min(distances) > self.max_distance:
+            return None, None  # No match found within distance threshold
+        
+        indices = np.argsort(distances)[:self.num_neighbours]
+        nearest_labels = np.array(self.labels)[indices]
+        counts = np.bincount(nearest_labels)
+        most_common = np.argmax(counts)
+        probability = counts[most_common] / self.num_neighbours
+
+        if probability > self.min_prob:
+            return most_common, probability
+        return None, None
 
 
 # The FaceClustering class enables unsupervised clustering of face images according to their identity and
@@ -71,6 +90,7 @@ class FaceClustering:
     # Prepare FaceClustering; specify all parameters of clustering algorithm.
     def __init__(self,num_clusters=2, max_iter=25):
         # ToDo: Prepare FaceNet.
+        self.facenet = FaceNet()
 
         # The underlying gallery: embeddings without class labels.
         self.embeddings = np.empty((0, self.facenet.get_embedding_dimensionality()))
@@ -101,12 +121,32 @@ class FaceClustering:
 
     # ToDo
     def update(self, face):
-        return None
+        embedding = self.facenet.predict(face)
+        self.embeddings = np.vstack([self.embeddings, embedding])
     
     # ToDo
     def fit(self):
-        return None
+        # Random initialization of clusters
+        indices = np.random.choice(self.embeddings.shape[0], self.num_clusters, replace=False)
+        self.cluster_centers = self.embeddings[indices]
+        
+        for _ in range(self.max_iter):
+            distances = spatial.distance.cdist(self.embeddings, self.cluster_centers, 'euclidean')
+            closest_clusters = np.argmin(distances, axis=1)
+            
+            for i in range(self.num_clusters):
+                points_in_cluster = self.embeddings[closest_clusters == i]
+                if len(points_in_cluster) > 0:
+                    self.cluster_centers[i] = np.mean(points_in_cluster, axis=0)
+
+            new_membership = list(closest_clusters)
+            if new_membership == self.cluster_membership:
+                break
+            self.cluster_membership = new_membership
 
     # ToDo
     def predict(self, face):
-        return None
+        embedding = self.facenet.predict(face)
+        distances = spatial.distance.cdist([embedding], self.cluster_centers, 'euclidean')[0]
+        cluster_index = np.argmin(distances)
+        return cluster_index
