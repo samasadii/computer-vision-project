@@ -16,7 +16,6 @@ class FaceDetector:
 
         # Size of face image after landmark-based alignment.
         self.aligned_image_size = aligned_image_size
-        self.reference_point = None
 
 	# ToDo: Specify all parameters for template matching.
         self.tm_threshold = tm_threshold
@@ -24,31 +23,39 @@ class FaceDetector:
 
     # ToDo: Track a face in a new image using template matching.
     def track_face(self, image):
+        # Check if there is a previously detected face to track
         if self.reference is None:
-            return None  # No face was detected initially.
+            detected_face = self.detect_face(image)
+            if detected_face:
+                self.reference = detected_face
+            return detected_face
 
-        # Define the search window around the last known position
-        x, y = self.reference_point
-        left = max(0, x - self.tm_window_size)
-        right = min(image.shape[1], x + self.tm_window_size)
-        top = max(0, y - self.tm_window_size)
-        bottom = min(image.shape[0], y + self.tm_window_size)
-        search_window = image[top:bottom, left:right]
+        # Compute the search region boundaries around the last known position of the detected face
+        bounding_box = self.reference['rect']
+        region_left = max(bounding_box[0] - self.tm_window_size, 0)
+        region_top = max(bounding_box[1] - self.tm_window_size, 0)
+        region_right = min(bounding_box[0] + bounding_box[2] + self.tm_window_size, image.shape[1])
+        region_bottom = min(bounding_box[1] + bounding_box[3] + self.tm_window_size, image.shape[0])
+        region_of_interest = image[region_top:region_bottom, region_left:region_right]
 
-        # Template matching
-        result = cv2.matchTemplate(search_window, self.reference, cv2.TM_CCOEFF_NORMED)
-        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
-        
-        if max_val < self.tm_threshold:
-            return self.detect_face(image)  # Reinitialize tracking
+        # Use template matching to find the face in the new image section
+        match_result = cv2.matchTemplate(region_of_interest, self.reference['aligned'], cv2.TM_CCOEFF_NORMED)
+        _, peak_correlation, _, location_of_peak = cv2.minMaxLoc(match_result)
 
-        # Update the reference point
-        self.reference_point = (left + max_loc[0] + self.reference.shape[1] // 2,
-                                top + max_loc[1] + self.reference.shape[0] // 2)
+        # Update the face reference if the found match is above the threshold
+        if peak_correlation >= self.tm_threshold:
+            updated_rect = (
+                location_of_peak[0] + region_left,
+                location_of_peak[1] + region_top,
+                self.reference['rect'][2],
+                self.reference['rect'][3]
+            )
+            updated_aligned_face = self.align_face(image, updated_rect)
+            self.reference = {"rect": updated_rect, "image": image, "aligned": updated_aligned_face, "response": peak_correlation}
+            return self.reference
 
-        face_rect = [left + max_loc[0], top + max_loc[1], self.reference.shape[1], self.reference.shape[0]]
-        aligned = self.align_face(image, face_rect)
-        return {"rect": face_rect, "image": image, "aligned": aligned, "response": max_val}
+        # If the correlation is below the threshold, attempt to redetect the face
+        return self.detect_face(image)
 
     # Face detection in a new image.
     def detect_face(self, image):

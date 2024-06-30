@@ -67,20 +67,27 @@ class FaceRecognizer:
 
     # ToDo
     def predict(self, face):
-        embedding = self.facenet.predict(face)
-        distances = spatial.distance.cdist([embedding], self.embeddings, 'euclidean')[0]
-        if np.min(distances) > self.max_distance:
-            return None, None  # No match found within distance threshold
-        
-        indices = np.argsort(distances)[:self.num_neighbours]
-        nearest_labels = np.array(self.labels)[indices]
-        counts = np.bincount(nearest_labels)
-        most_common = np.argmax(counts)
-        probability = counts[most_common] / self.num_neighbours
+        # Extract facial features and calculate distances to known embeddings
+        feature_vector = self.facenet.predict(face)
+        euclidean_distances = spatial.distance.cdist([feature_vector], self.embeddings, 'euclidean').flatten()
 
-        if probability > self.min_prob:
-            return most_common, probability
-        return None, None
+        # Identify the closest matches based on the computed distances
+        sorted_indices = np.argsort(euclidean_distances)[:self.num_neighbours]
+        labels_of_nearest = [self.labels[idx] for idx in sorted_indices]
+
+        # Determine the most frequent label from the nearest neighbors
+        label_frequencies = {label: labels_of_nearest.count(label) for label in set(labels_of_nearest)}
+        predominant_label, highest_frequency = max(label_frequencies.items(), key=lambda item: item[1])
+        label_probability = highest_frequency / self.num_neighbours
+
+        # Check if the predominant label meets the probability threshold
+        if label_probability < self.min_prob:
+            return None, label_probability, euclidean_distances.min()
+
+        # Calculate the minimum distance for the predominant label
+        min_distance_for_label = min(euclidean_distances[i] for i, label in enumerate(self.labels) if label == predominant_label and i in sorted_indices)
+
+        return predominant_label, label_probability, min_distance_for_label
 
 
 # The FaceClustering class enables unsupervised clustering of face images according to their identity and
@@ -111,12 +118,12 @@ class FaceClustering:
 
     # Save the trained model as a pickle file.
     def save(self):
-        with open("clustering_gallery.pkl", 'w') as f:
+        with open("clustering_gallery.pkl", 'wb') as f:
             pickle.dump((self.embeddings, self.num_clusters, self.cluster_center, self.cluster_membership), f)
 
     # Load trained model from a pickle file.
     def load(self):
-        with open("clustering_gallery.pkl", 'r') as f:
+        with open("clustering_gallery.pkl", 'rb') as f:
             (self.embeddings, self.num_clusters, self.cluster_center, self.cluster_membership) = pickle.load(f)
 
     # ToDo
@@ -126,27 +133,26 @@ class FaceClustering:
     
     # ToDo
     def fit(self):
-        # Random initialization of clusters
-        indices = np.random.choice(self.embeddings.shape[0], self.num_clusters, replace=False)
-        self.cluster_centers = self.embeddings[indices]
-        
-        for _ in range(self.max_iter):
-            distances = spatial.distance.cdist(self.embeddings, self.cluster_centers, 'euclidean')
-            closest_clusters = np.argmin(distances, axis=1)
-            
-            for i in range(self.num_clusters):
-                points_in_cluster = self.embeddings[closest_clusters == i]
-                if len(points_in_cluster) > 0:
-                    self.cluster_centers[i] = np.mean(points_in_cluster, axis=0)
+        # Initialize cluster centers randomly from the existing embeddings
+        initial_selection = np.random.permutation(self.embeddings.shape[0])[:self.num_clusters]
+        self.cluster_centers = self.embeddings[initial_selection]
 
-            new_membership = list(closest_clusters)
-            if new_membership == self.cluster_membership:
-                break
-            self.cluster_membership = new_membership
+        # Iteratively refine cluster centers
+        for iteration in range(self.max_iter):
+            # Compute Euclidean distances from each embedding to each cluster center
+            cluster_distances = spatial.distance.cdist(self.embeddings, self.cluster_centers, 'euclidean')
+            nearest_cluster_indices = np.argmin(cluster_distances, axis=1)
+
+            # Update cluster centers based on the mean of members in each cluster
+            for cluster_index in range(self.num_clusters):
+                cluster_members = self.embeddings[nearest_cluster_indices == cluster_index]
+                if cluster_members.size > 0:
+                    self.cluster_centers[cluster_index] = np.average(cluster_members, axis=0)
 
     # ToDo
     def predict(self, face):
         embedding = self.facenet.predict(face)
-        distances = spatial.distance.cdist([embedding], self.cluster_centers, 'euclidean')[0]
-        cluster_index = np.argmin(distances)
-        return cluster_index
+        distances = spatial.distance.cdist([embedding], self.cluster_center, 'euclidean')[0]
+        # Picking the best cluster based on the minimum distance
+        best = np.argmin(distances)
+        return best, distances

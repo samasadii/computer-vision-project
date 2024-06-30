@@ -13,10 +13,10 @@ from face_recognition import FaceClustering
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     # The training mode ("ident" to train face identification, "cluster" for face clustering)
-    parser.add_argument('--mode', type=str, default="ident")
+    parser.add_argument('--mode', type=str, default="cluster")
     # The video capture input. In case of "None" the default video capture (webcam) is used. Use a filename(s) to read
     # video data from image file (see VideoCapture documentation)
-    parser.add_argument('--video', type=str, default="/eso/dfs/Home/thko7498/FAU/CV Projekt/exercise/solution/test_data/Alan_Ball/%04d.jpg")
+    parser.add_argument('--video', type=str, default="datasets/test_data/Nancy_Sinatra/%04d.jpg")
     args = parser.parse_args()
 
     # Setup OpenCV video capture.
