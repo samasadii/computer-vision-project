@@ -19,7 +19,7 @@ from selective_search import selective_search
 def main():
     
     # loading a test image from '../data' folder
-    image_path = 'path/to/image.jpg'
+    image_path = '../data/classarch/leading1.jpg'
     image = skimage.io.imread(image_path)
     print (image.shape)
     
