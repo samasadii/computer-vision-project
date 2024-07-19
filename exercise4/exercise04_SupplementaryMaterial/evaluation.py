@@ -29,43 +29,51 @@ class OpenSetEvaluation:
     def prepare_input_data(self, train_data_file, test_data_file):
 
         with open(train_data_file, 'rb') as f:
-            (self.train_embeddings, self.train_labels) = pickle.load(f, encoding='latin1')
+            (self.train_embeddings, self.train_labels) = pickle.load(f, encoding='iso-8859-1')
         with open(test_data_file, 'rb') as f:
-            (self.test_embeddings, self.test_labels) = pickle.load(f, encoding='latin1')
+            (self.test_embeddings, self.test_labels) = pickle.load(f, encoding='iso-8859-1')
 
     # Run the evaluation and find performance measure (identification rates) at different similarity thresholds.
     def run(self):
 
-        # Train the classifier using the training data
-        self.classifier.fit(np.array(self.train_embeddings), np.array(self.train_labels))
+        similarity_thresholds = []
+        identification_rates = []
 
-        # Obtain predictions and similarity scores from the test dataset
-        predicted_labels, similarity_scores = self.classifier.predict_labels_and_similarities(self.test_embeddings)
+        self.classifier.fit(self.train_embeddings, self.train_labels)
+        prediction_labels, similarities = self.classifier.predict_labels_and_similarities(self.test_embeddings)
 
-        thresholds = []
-        rates_of_identification = []
+        is_unknown = np.array(self.test_labels) == UNKNOWN_LABEL
+        
 
-        # Evaluate performance at various levels of false alarm rates
+        unknown_similarities = similarities[is_unknown]
+        known_similarities = similarities[~is_unknown]
+        known_prediction_labels = prediction_labels[~is_unknown]
+        known_labels = np.array(self.test_labels)[~is_unknown]
+        
         for far in self.false_alarm_rate_range:
-            cutoff = self.select_similarity_threshold(similarity_scores, far)
-            filtered_labels = [label if score >= cutoff else UNKNOWN_LABEL for label, score in zip(predicted_labels, similarity_scores)]
-            identification_rate = self.calc_identification_rate(filtered_labels, self.test_labels)
-            thresholds.append(cutoff)
-            rates_of_identification.append(identification_rate)
+            threshold = self.select_similarity_threshold(unknown_similarities, far)
+            is_above_threshold = known_similarities >= threshold
 
-        return {'similarity_thresholds': thresholds, 'identification_rates': rates_of_identification}
+            # Evaluate identification rate only on known samples
+            valid_predictions = np.array(known_prediction_labels)[is_above_threshold]
+            valid_labels = np.array(known_labels)[is_above_threshold]
+
+            identification_rate = self.calc_identification_rate(valid_predictions, valid_labels, known_labels)
+
+            similarity_thresholds.append(threshold)
+            identification_rates.append(identification_rate)
+        
+        evaluation_results = {'similarity_thresholds': similarity_thresholds, 'identification_rates': identification_rates}
+
+
+        return evaluation_results
 
     def select_similarity_threshold(self, similarities, false_alarm_rate):
-        # Filter out the similarities of known subjects
-        known_similarities = [s for s, label in zip(similarities, self.test_labels) if label != UNKNOWN_LABEL]
-        # Calculate the similarity threshold for the given false alarm rate
-        threshold = np.percentile(known_similarities, (1 - false_alarm_rate) * 100)
+        # Select the threshold that allows us to achieve the desired false alarm rate
+        threshold = np.percentile(similarities, 100 * (1 - false_alarm_rate))
         return threshold
 
-    def calc_identification_rate(self, prediction_labels, true_labels):
-        # Calculate the identification rate based on the prediction labels and the true labels
+    def calc_identification_rate(self, prediction_labels, true_labels, known_labels):
         correct_predictions = np.sum(np.array(prediction_labels) == np.array(true_labels))
-        total_predictions = len(true_labels)
-        # Calculate the identification rate
-        identification_rate = correct_predictions / total_predictions if total_predictions else 0
-        return identification_rate
+        total_predictions = len(known_labels)
+        return correct_predictions / total_predictions
