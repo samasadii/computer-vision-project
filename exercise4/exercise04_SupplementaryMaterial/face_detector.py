@@ -7,7 +7,7 @@ import numpy as np
 class FaceDetector:
 
     # Prepare the face detector; specify all parameters used for detection, tracking, and alignment.
-    def __init__(self, tm_window_size=25, tm_threshold=0.7, aligned_image_size=224):
+    def __init__(self, tm_window_size=25, tm_threshold=0.65, aligned_image_size=224):
         # Prepare face alignment.
         self.detector = MTCNN()
 
