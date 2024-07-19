@@ -79,13 +79,12 @@ class FaceRecognizer:
         label_frequencies = {label: labels_of_nearest.count(label) for label in set(labels_of_nearest)}
         predominant_label, highest_frequency = max(label_frequencies.items(), key=lambda item: item[1])
         label_probability = highest_frequency / self.num_neighbours
-
-        # Check if the predominant label meets the probability threshold
-        if label_probability < self.min_prob:
-            return None, label_probability, euclidean_distances.min()
-
+        
         # Calculate the minimum distance for the predominant label
         min_distance_for_label = min(euclidean_distances[i] for i, label in enumerate(self.labels) if label == predominant_label and i in sorted_indices)
+
+        if label_probability < self.min_prob or min_distance_for_label > self.max_distance:
+            return "unknown", label_probability, min_distance_for_label
 
         return predominant_label, label_probability, min_distance_for_label
 
