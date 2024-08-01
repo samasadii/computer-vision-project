@@ -16,7 +16,7 @@ if __name__ == '__main__':
     parser.add_argument('--mode', type=str, default="cluster")
     # The video capture input. In case of "None" the default video capture (webcam) is used. Use a filename(s) to read
     # video data from image file (see VideoCapture documentation)
-    parser.add_argument('--video', type=str, default="datasets/test_data/Nancy_Sinatra/%04d.jpg")
+    parser.add_argument('--video', type=str, default="datasets/test_data/Peter_Gilmour/%04d.jpg")
     args = parser.parse_args()
 
     # Setup OpenCV video capture.

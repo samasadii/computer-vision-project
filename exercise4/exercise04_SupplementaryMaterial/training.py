@@ -18,7 +18,7 @@ if __name__ == '__main__':
     # video data from image file (see VideoCapture documentation)
     #parser.add_argument('--video', type=str, default="/eso/dfs/Home/thko7498/FAU/CV Projekt/exercise/solution/training_data/Nancy_Sinatra/%04d.jpg")
     parser.add_argument('--video', type=str,
-                        default="datasets/training_data/Peter_Gilmour/%04d.jpg")
+                        default="datasets/training_data/Manuel_Pellegrini/%04d.jpg")
     # Identity label (only required for face identification)
     parser.add_argument('--label', type=str, default="Peter_Gilmour")
     args = parser.parse_args()

@@ -79,13 +79,12 @@ class FaceRecognizer:
         label_frequencies = {label: labels_of_nearest.count(label) for label in set(labels_of_nearest)}
         predominant_label, highest_frequency = max(label_frequencies.items(), key=lambda item: item[1])
         label_probability = highest_frequency / self.num_neighbours
-
-        # Check if the predominant label meets the probability threshold
-        if label_probability < self.min_prob:
-            return None, label_probability, euclidean_distances.min()
-
+        
         # Calculate the minimum distance for the predominant label
         min_distance_for_label = min(euclidean_distances[i] for i, label in enumerate(self.labels) if label == predominant_label and i in sorted_indices)
+
+        if label_probability < self.min_prob or min_distance_for_label > self.max_distance:
+            return "unknown", label_probability, min_distance_for_label
 
         return predominant_label, label_probability, min_distance_for_label
 
@@ -95,7 +94,7 @@ class FaceRecognizer:
 class FaceClustering:
 
     # Prepare FaceClustering; specify all parameters of clustering algorithm.
-    def __init__(self,num_clusters=2, max_iter=25):
+    def __init__(self,num_clusters=3, max_iter=25):
         # ToDo: Prepare FaceNet.
         self.facenet = FaceNet()
 
@@ -130,24 +129,38 @@ class FaceClustering:
     def update(self, face):
         embedding = self.facenet.predict(face)
         self.embeddings = np.vstack([self.embeddings, embedding])
+        # print(len(self.embeddings))
     
     # ToDo
     def fit(self):
         # Initialize cluster centers randomly from the existing embeddings
         initial_selection = np.random.permutation(self.embeddings.shape[0])[:self.num_clusters]
-        self.cluster_centers = self.embeddings[initial_selection]
+        self.cluster_center = self.embeddings[initial_selection]
 
-        # Iteratively refine cluster centers
-        for iteration in range(self.max_iter):
-            # Compute Euclidean distances from each embedding to each cluster center
-            cluster_distances = spatial.distance.cdist(self.embeddings, self.cluster_centers, 'euclidean')
-            nearest_cluster_indices = np.argmin(cluster_distances, axis=1)
+        # Track changes in cluster centers to monitor convergence
+        objective_function_values = []
 
-            # Update cluster centers based on the mean of members in each cluster
+        for _ in range(self.max_iter):
+            # Compute distances from embeddings to cluster centers
+            cluster_distances = spatial.distance.cdist(self.embeddings, self.cluster_center, 'euclidean')
+            new_membership = np.argmin(cluster_distances, axis=1)
+
+
+            # Check if clusters have changed
+            # if np.array_equal(self.cluster_membership, new_membership):
+            #     break  # Convergence achieved if membership does not change
+
+            self.cluster_membership = new_membership
+            objective_function_values.append(np.sum(np.min(cluster_distances, axis=1)))  # k-means objective function
+
+            # Update cluster centers
             for cluster_index in range(self.num_clusters):
-                cluster_members = self.embeddings[nearest_cluster_indices == cluster_index]
-                if cluster_members.size > 0:
-                    self.cluster_centers[cluster_index] = np.average(cluster_members, axis=0)
+                members = self.embeddings[self.cluster_membership == cluster_index]
+                if members.size > 0:
+                    self.cluster_center[cluster_index] = np.mean(members, axis=0)
+
+
+        # self.show_convergence(objective_function_values, "Last_Marina")
 
     # ToDo
     def predict(self, face):
@@ -156,3 +169,11 @@ class FaceClustering:
         # Picking the best cluster based on the minimum distance
         best = np.argmin(distances)
         return best, distances
+
+    def show_convergence(self, objective_function_values, title="Convergence-1"):
+        import matplotlib.pyplot as plt
+        plt.plot(range(len(objective_function_values)), objective_function_values)
+        plt.xlabel("Iteration")
+        plt.ylabel("Objective Function Value")
+        plt.title("Convergence of k-means Clustering")
+        plt.savefig(f'convergence/{title}.png')

@@ -7,7 +7,7 @@ import numpy as np
 class FaceDetector:
 
     # Prepare the face detector; specify all parameters used for detection, tracking, and alignment.
-    def __init__(self, tm_window_size=20, tm_threshold=0.7, aligned_image_size=224):
+    def __init__(self, tm_window_size=25, tm_threshold=0.65, aligned_image_size=224):
         # Prepare face alignment.
         self.detector = MTCNN()
 
@@ -38,24 +38,28 @@ class FaceDetector:
         region_bottom = min(bounding_box[1] + bounding_box[3] + self.tm_window_size, image.shape[0])
         region_of_interest = image[region_top:region_bottom, region_left:region_right]
 
+        grey_region_of_interest = cv2.cvtColor(region_of_interest, cv2.COLOR_BGR2GRAY)
+        grey_aligned_face = cv2.cvtColor(self.crop_face(self.reference['image'], self.reference['rect']), cv2.COLOR_BGR2GRAY)
+
         # Use template matching to find the face in the new image section
-        match_result = cv2.matchTemplate(region_of_interest, self.reference['aligned'], cv2.TM_CCOEFF_NORMED)
-        _, peak_correlation, _, location_of_peak = cv2.minMaxLoc(match_result)
+        match_result = cv2.matchTemplate(grey_region_of_interest, grey_aligned_face, cv2.TM_CCOEFF_NORMED)
+        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(match_result)
 
         # Update the face reference if the found match is above the threshold
-        if peak_correlation >= self.tm_threshold:
+        if max_val >= self.tm_threshold:
             updated_rect = (
-                location_of_peak[0] + region_left,
-                location_of_peak[1] + region_top,
+                max_loc[0] + region_left,
+                max_loc[1] + region_top,
                 self.reference['rect'][2],
                 self.reference['rect'][3]
             )
             updated_aligned_face = self.align_face(image, updated_rect)
-            self.reference = {"rect": updated_rect, "image": image, "aligned": updated_aligned_face, "response": peak_correlation}
+            self.reference = {"rect": updated_rect, "image": image, "aligned": updated_aligned_face, "response": max_val}
             return self.reference
 
         # If the correlation is below the threshold, attempt to redetect the face
-        return self.detect_face(image)
+        self.reference = self.detect_face(image)
+        return self.reference
 
     # Face detection in a new image.
     def detect_face(self, image):
